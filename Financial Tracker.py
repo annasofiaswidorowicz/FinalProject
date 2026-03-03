@@ -26,6 +26,7 @@ Everything else still works:
 import csv
 import os
 from datetime import datetime, date
+import matplotlib.pyplot as plt
 
 
 # -----------------------------
