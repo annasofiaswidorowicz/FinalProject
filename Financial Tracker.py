@@ -3,90 +3,107 @@
 #see where you're at and the spending you've done this month.
 
 """
-Personal Finance Tracker (CSV-based)
+Personal Finance Tracker (CSV-based) — User-friendly Quick Add
 
-Features implemented (from the idea #3 bullets):
-1) Add transaction: amount, category, date, note
-2) Store transactions in a list of dictionaries
-3) Summaries:
-   - total spending
-   - totals per category
-   - biggest expense
-4) try/except for amount parsing and input validation
-5) Monthly budget warnings (if category exceeds limit)
-6) Export summary report to a text file
-7) Simple charts (optional, uses matplotlib if installed)
+Change requested:
+- Default date is TODAY (no prompt for date)
+- User only types ONE line: category + amount (+ optional note)
+  Examples:
+    food 7.50 arepa + coffee
+    transport 2.10 metro
+    rent 120
+  Also accepts amount first:
+    7.50 food arepa + coffee
 
-CSV format used:
-date,amount,category,note
-2026-03-03,12.50,Food,Arepa lunch
+Everything else still works:
+- Stores list of dicts
+- Summaries (total, by category, biggest expense)
+- Budgets + warnings
+- Export report
+- Optional charts (matplotlib)
 """
 
 import csv
 import os
-from datetime import datetime
+from datetime import datetime, date
 
 
 # -----------------------------
 # Helpers: validation & parsing
 # -----------------------------
 
-def parse_amount(amount_str):
-    """
-    Convert user input to a float amount.
-    Raises ValueError if invalid.
-    """
+def parse_amount(amount_str: str) -> float:
+    """Convert user input to a float amount. Raises ValueError if invalid."""
     try:
         amount = float(amount_str)
     except ValueError:
         raise ValueError("Amount must be a number (example: 12.50).")
 
-    # You can decide whether to allow negative amounts (refunds).
-    # Here we allow negative for refunds, but not zero.
     if amount == 0:
         raise ValueError("Amount cannot be 0.")
     return amount
 
 
-def parse_date(date_str):
-    """
-    Parse a date in YYYY-MM-DD format.
-    Returns a datetime.date.
-    Raises ValueError if invalid.
-    """
-    try:
-        return datetime.strptime(date_str, "%Y-%m-%d").date()
-    except ValueError:
-        raise ValueError("Date must be in YYYY-MM-DD format (example: 2026-03-03).")
-
-
-def clean_category(cat):
-    """
-    Basic category cleaning (trim + title case).
-    """
+def clean_category(cat: str) -> str:
+    """Basic category cleaning (trim + title case)."""
     cat = cat.strip()
     if not cat:
         raise ValueError("Category cannot be empty.")
     return cat.title()
 
 
-def safe_input(prompt):
-    """
-    Input wrapper to avoid accidental None / weird whitespace.
-    """
+def safe_input(prompt: str) -> str:
+    """Input wrapper to avoid accidental whitespace issues."""
     return input(prompt).strip()
+
+
+def parse_quick_add(line: str):
+    """
+    Parse one-line quick add input.
+
+    Accepted formats:
+      - category amount [note...]
+      - amount category [note...]
+
+    Returns: (category, amount, note)
+
+    Examples:
+      "food 7.5 arepa" -> ("Food", 7.5, "arepa")
+      "7.5 food arepa" -> ("Food", 7.5, "arepa")
+      "rent 120" -> ("Rent", 120.0, "")
+    """
+    parts = line.strip().split()
+    if len(parts) < 2:
+        raise ValueError("Please type at least: category amount (example: food 7.50 coffee)")
+
+    # Try interpreting second token as amount (category amount ...)
+    try:
+        cat = clean_category(parts[0])
+        amt = parse_amount(parts[1])
+        note = " ".join(parts[2:]).strip()
+        return cat, amt, note
+    except ValueError:
+        pass
+
+    # Try interpreting first token as amount (amount category ...)
+    try:
+        amt = parse_amount(parts[0])
+        cat = clean_category(parts[1])
+        note = " ".join(parts[2:]).strip()
+        return cat, amt, note
+    except ValueError:
+        raise ValueError(
+            "Could not parse. Use: category amount [note...] (example: food 7.50 arepa)\n"
+            "Or: amount category [note...] (example: 7.50 food arepa)"
+        )
 
 
 # -----------------------------
 # Core data loading/saving
 # -----------------------------
 
-def load_transactions(csv_filename):
-    """
-    Load transactions from a CSV file.
-    Returns a list of dictionaries.
-    If the file doesn't exist, returns an empty list.
-    """
+def load_transactions(csv_filename: str):
+    """Load transactions from CSV into a list of dictionaries."""
     transactions = []
     if not os.path.exists(csv_filename):
         return transactions
@@ -95,33 +112,23 @@ def load_transactions(csv_filename):
         with open(csv_filename, "r", newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                # Defensive parsing (in case file was edited manually)
                 try:
-                    d = parse_date(row["date"])
+                    d = datetime.strptime(row["date"], "%Y-%m-%d").date()
                     amt = float(row["amount"])
                     cat = row["category"].strip()
                     note = row.get("note", "").strip()
                 except Exception:
-                    # Skip corrupted rows rather than crashing
                     continue
 
-                transactions.append({
-                    "date": d,
-                    "amount": amt,
-                    "category": cat,
-                    "note": note
-                })
+                transactions.append({"date": d, "amount": amt, "category": cat, "note": note})
     except Exception as e:
         print(f"⚠️ Could not read file: {e}")
 
     return transactions
 
 
-def save_transactions(csv_filename, transactions):
-    """
-    Save transactions (list of dicts) to CSV.
-    Overwrites file.
-    """
+def save_transactions(csv_filename: str, transactions):
+    """Save transactions to CSV (overwrite)."""
     try:
         with open(csv_filename, "w", newline="", encoding="utf-8") as f:
             fieldnames = ["date", "amount", "category", "note"]
@@ -139,92 +146,38 @@ def save_transactions(csv_filename, transactions):
 
 
 # -----------------------------
-# Feature 1: Add transaction
+# Feature: QUICK ADD (today by default)
 # -----------------------------
 
-def add_transaction(transactions):
+def add_transaction_quick(transactions):
     """
-    Ask user for transaction info and append to transactions list.
-    Implements input validation + try/except parsing.
+    Quick add:
+    - Default date is today
+    - User types: category amount [note...]
     """
-    print("\nAdd a transaction")
+    print("\nQuick Add (date defaults to today)")
+    print("Examples:  food 7.50 arepa + coffee   |   7.50 food arepa + coffee   |   rent 120")
     while True:
-        date_str = safe_input("Date (YYYY-MM-DD): ")
+        line = safe_input("Enter transaction: ")
         try:
-            d = parse_date(date_str)
+            cat, amt, note = parse_quick_add(line)
             break
         except ValueError as e:
             print(f"❌ {e}")
-
-    while True:
-        amount_str = safe_input("Amount (example 12.50, negative allowed for refunds): ")
-        try:
-            amt = parse_amount(amount_str)
-            break
-        except ValueError as e:
-            print(f"❌ {e}")
-
-    while True:
-        cat_str = safe_input("Category (Food, Transport, Rent, etc.): ")
-        try:
-            cat = clean_category(cat_str)
-            break
-        except ValueError as e:
-            print(f"❌ {e}")
-
-    note = safe_input("Note (optional): ")
 
     transactions.append({
-        "date": d,
+        "date": date.today(),
         "amount": amt,
         "category": cat,
         "note": note
     })
 
-    print("✅ Added.")
+    print(f"✅ Added: {date.today().isoformat()} | €{amt:.2f} | {cat} | {note}")
 
 
 # -----------------------------
-# Feature 3: Summaries
+# Summaries
 # -----------------------------
-
-def total_spending(transactions, month=None):
-    """
-    Total spending (only counts positive amounts as spending).
-    If month is provided (YYYY-MM), filters to that month.
-    """
-    total = 0.0
-    for t in filter_by_month(transactions, month):
-        if t["amount"] > 0:
-            total += t["amount"]
-    return total
-
-
-def totals_by_category(transactions, month=None):
-    """
-    Returns a dict category -> total spending (positive amounts only).
-    Optional month filter (YYYY-MM).
-    """
-    totals = {}
-    for t in filter_by_month(transactions, month):
-        if t["amount"] > 0:
-            cat = t["category"]
-            totals[cat] = totals.get(cat, 0.0) + t["amount"]
-    return totals
-
-
-def biggest_expense(transactions, month=None):
-    """
-    Returns the biggest single expense transaction (positive amount).
-    If none found, returns None.
-    """
-    biggest = None
-    for t in filter_by_month(transactions, month):
-        if t["amount"] > 0:
-            if biggest is None or t["amount"] > biggest["amount"]:
-                biggest = t
-    return biggest
-
 
 def filter_by_month(transactions, month):
     """
@@ -240,7 +193,6 @@ def filter_by_month(transactions, month):
         dt = datetime.strptime(month, "%Y-%m")
         y, m = dt.year, dt.month
     except ValueError:
-        # If invalid month, treat as no filter (or you can raise)
         for t in transactions:
             yield t
         return
@@ -250,14 +202,38 @@ def filter_by_month(transactions, month):
             yield t
 
 
+def total_spending(transactions, month=None) -> float:
+    """Total spending (positive amounts only)."""
+    total = 0.0
+    for t in filter_by_month(transactions, month):
+        if t["amount"] > 0:
+            total += t["amount"]
+    return total
+
+
+def totals_by_category(transactions, month=None):
+    """Dict category -> total spending (positive amounts only)."""
+    totals = {}
+    for t in filter_by_month(transactions, month):
+        if t["amount"] > 0:
+            cat = t["category"]
+            totals[cat] = totals.get(cat, 0.0) + t["amount"]
+    return totals
+
+
+def biggest_expense(transactions, month=None):
+    """Biggest single expense (positive amount)."""
+    biggest = None
+    for t in filter_by_month(transactions, month):
+        if t["amount"] > 0:
+            if biggest is None or t["amount"] > biggest["amount"]:
+                biggest = t
+    return biggest
+
+
 def print_summary(transactions, month=None):
-    """
-    Nicely prints summary metrics.
-    """
-    if month:
-        print(f"\n📊 Summary for {month}")
-    else:
-        print("\n📊 Summary (all time)")
+    """Print summary metrics."""
+    print(f"\n📊 Summary for {month}" if month else "\n📊 Summary (all time)")
 
     total = total_spending(transactions, month)
     print(f"Total spending: €{total:.2f}")
@@ -279,14 +255,11 @@ def print_summary(transactions, month=None):
 
 
 # -----------------------------
-# Feature 5: Monthly budget warnings
+# Budgets + warnings
 # -----------------------------
 
 def set_budgets():
-    """
-    Lets user define budgets per category for a month.
-    Returns dict category -> budget amount.
-    """
+    """Set monthly budgets per category. Returns dict category -> budget."""
     budgets = {}
     print("\nSet monthly budgets (enter blank category to stop).")
     while True:
@@ -299,9 +272,9 @@ def set_budgets():
             print(f"❌ {e}")
             continue
 
-        amount_str = safe_input(f"Monthly budget for {cat} (€): ")
+        amt_str = safe_input(f"Monthly budget for {cat} (€): ")
         try:
-            amt = parse_amount(amount_str)
+            amt = parse_amount(amt_str)
             if amt < 0:
                 print("❌ Budget must be positive.")
                 continue
@@ -309,26 +282,20 @@ def set_budgets():
         except ValueError as e:
             print(f"❌ {e}")
 
-    if budgets:
-        print("✅ Budgets set.")
-    else:
-        print("No budgets set.")
+    print("✅ Budgets set." if budgets else "No budgets set.")
     return budgets
 
 
 def budget_warnings(transactions, budgets, month):
-    """
-    Prints warnings if spending exceeds budget for the given month.
-    month format: YYYY-MM
-    """
+    """Warn if spending exceeds budget for the given month (YYYY-MM)."""
     if not budgets:
         print("\nNo budgets set.")
         return
 
     by_cat = totals_by_category(transactions, month)
     print(f"\n💸 Budget check for {month}")
-    any_warning = False
 
+    any_warning = False
     for cat, limit in budgets.items():
         spent = by_cat.get(cat, 0.0)
         if spent > limit:
@@ -343,33 +310,31 @@ def budget_warnings(transactions, budgets, month):
 
 
 # -----------------------------
-# Feature 6: Export summary report
+# Export report
 # -----------------------------
 
 def export_summary_report(transactions, filename, month=None):
-    """
-    Exports a summary report to a .txt file.
-    """
+    """Export a summary report to a .txt file."""
     total = total_spending(transactions, month)
     by_cat = totals_by_category(transactions, month)
     big = biggest_expense(transactions, month)
 
-    lines = []
     header = f"Summary Report - {month}" if month else "Summary Report - All time"
-    lines.append(header)
-    lines.append("=" * len(header))
-    lines.append(f"Total spending: €{total:.2f}")
-    lines.append("")
+    lines = [
+        header,
+        "=" * len(header),
+        f"Total spending: €{total:.2f}",
+        "",
+        "Spending by category:"
+    ]
 
-    lines.append("Spending by category:")
     if not by_cat:
         lines.append("  (no spending transactions)")
     else:
         for cat in sorted(by_cat.keys()):
             lines.append(f"  - {cat}: €{by_cat[cat]:.2f}")
 
-    lines.append("")
-    lines.append("Biggest expense:")
+    lines += ["", "Biggest expense:"]
     if big:
         lines.append(f"  - €{big['amount']:.2f} | {big['category']} | {big['date'].isoformat()} | {big['note']}")
     else:
@@ -384,14 +349,11 @@ def export_summary_report(transactions, filename, month=None):
 
 
 # -----------------------------
-# Feature 7: Charts (optional)
+# Charts (optional)
 # -----------------------------
 
 def plot_category_spending(transactions, month=None):
-    """
-    Plots spending by category as a simple bar chart.
-    Requires matplotlib. If not installed, prints a message.
-    """
+    """Plot spending by category (requires matplotlib)."""
     try:
         import matplotlib.pyplot as plt
     except ImportError:
@@ -408,8 +370,7 @@ def plot_category_spending(transactions, month=None):
 
     plt.figure()
     plt.bar(categories, values)
-    title = f"Spending by Category ({month})" if month else "Spending by Category (All time)"
-    plt.title(title)
+    plt.title(f"Spending by Category ({month})" if month else "Spending by Category (All time)")
     plt.xlabel("Category")
     plt.ylabel("Spending (€)")
     plt.xticks(rotation=30, ha="right")
@@ -422,9 +383,7 @@ def plot_category_spending(transactions, month=None):
 # -----------------------------
 
 def list_transactions(transactions, month=None):
-    """
-    Prints transactions (optionally filtered by month).
-    """
+    """Print transactions (optionally filtered by month)."""
     tx = list(filter_by_month(transactions, month))
     if not tx:
         print("\n(no transactions)")
@@ -438,14 +397,11 @@ def list_transactions(transactions, month=None):
 
 
 def delete_transaction(transactions):
-    """
-    Deletes a transaction by index (based on the current ordering).
-    """
+    """Delete a transaction by index (from sorted view)."""
     if not transactions:
         print("No transactions to delete.")
         return
 
-    # Show all transactions with indices
     sorted_tx = sorted(transactions, key=lambda t: (t["date"], t["category"]))
     for i, t in enumerate(sorted_tx, start=1):
         sign = "-" if t["amount"] < 0 else ""
@@ -464,16 +420,13 @@ def delete_transaction(transactions):
         print("❌ Please type a valid integer.")
         return
 
-    # Remove the chosen transaction from the original list
     to_remove = sorted_tx[idx - 1]
     transactions.remove(to_remove)
     print("✅ Deleted.")
 
 
 def ask_month_optional():
-    """
-    Ask user for a month in YYYY-MM or blank for all time.
-    """
+    """Ask user for a month in YYYY-MM or blank for all time."""
     month = safe_input("Month (YYYY-MM) or press Enter for all time: ")
     return month if month else None
 
@@ -483,13 +436,13 @@ def main():
     report_file = "summary_report.txt"
 
     transactions = load_transactions(csv_file)
-    budgets = {}  # category -> monthly budget
+    budgets = {}
 
     while True:
-        print("\n" + "-" * 40)
-        print("Personal Finance Tracker")
-        print("-" * 40)
-        print("1) Add transaction")
+        print("\n" + "-" * 45)
+        print("Personal Finance Tracker (Quick Add)")
+        print("-" * 45)
+        print("1) Quick add transaction (today by default)")
         print("2) List transactions")
         print("3) Show summary")
         print("4) Delete transaction")
@@ -502,7 +455,7 @@ def main():
         choice = safe_input("Choose an option (1-9): ")
 
         if choice == "1":
-            add_transaction(transactions)
+            add_transaction_quick(transactions)
 
         elif choice == "2":
             month = ask_month_optional()
